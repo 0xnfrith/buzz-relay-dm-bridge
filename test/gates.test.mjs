@@ -145,3 +145,31 @@ test("the near-miss warning stays quiet on a passing reference", () => {
   assert.deepEqual(untagged("I'll ask @the-bridge about it later"), { action: "drop", reason: "not-tagged" });
   assert.deepEqual(untagged("@the-bridge-two is a different thing"), { action: "drop", reason: "not-tagged" });
 });
+
+// A deployment renamed the bridge to a three-segment hyphenated name and asked
+// whether the near-miss detector survived it. Both name-shaped functions split
+// on the configured name and then guard with /^[\w-]/, which treats a hyphen
+// as part of a word — so a name whose own hyphens sit inside the match is
+// exactly where that guard could go wrong. It does not, and this pins it.
+test("a multi-segment hyphenated name works in both directions", () => {
+  const named = { ...config, displayName: "far-side-dm-bot" };
+  const event = (over) => message({ ...over });
+  const untagged = (content) => classifyHomeEvent(event({ tags: [["h", HOME]], content }), named);
+
+  assert.equal(untagged("@far-side-dm-bot yo").action, "notice-untagged");
+  assert.equal(untagged("far-side-dm-bot yo").action, "notice-untagged");
+  assert.equal(untagged("@Far-Side-DM-Bot yo").action, "notice-untagged");
+  assert.equal(untagged("far-side-dm-bot").action, "notice-untagged");
+
+  // The near name and the passing reference must still be left alone.
+  assert.deepEqual(untagged("far-side-dm-bot-two yo"), { action: "drop", reason: "not-tagged" });
+  assert.deepEqual(untagged("ask far-side-dm-bot later"), { action: "drop", reason: "not-tagged" });
+  // A prefix of the new name that used to be a whole name of its own.
+  assert.deepEqual(untagged("far-side yo"), { action: "drop", reason: "not-tagged" });
+
+  assert.deepEqual(
+    classifyHomeEvent(event({ content: "@far-side-dm-bot yo" }), named),
+    { action: "forward", text: "yo", attachment: false },
+  );
+  assert.deepEqual(stripMention("@far-side-dm-bot yo", "far-side-dm-bot"), { text: "yo", found: true });
+});

@@ -9,6 +9,7 @@
   "engines": { "node": ">=20" },
   "scripts": {
     "start": "node src/index.mjs",
+    "set-profile": "node src/set-profile.mjs",
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {

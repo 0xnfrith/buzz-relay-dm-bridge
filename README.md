@@ -116,6 +116,40 @@ none of them have defaults. See [`.env.example`](.env.example).
 name exactly, because it is the token stripped from your message before
 forwarding. Get it wrong and your mention travels along with your words.
 
+## Setting the profile
+
+```
+npm run set-profile              # print what would change, publish nothing
+npm run set-profile -- --commit  # publish it
+npm run set-profile -- --far     # also target the far relay
+```
+
+Kind 0 is replaceable, so a profile assembled from `BOT_DISPLAY_NAME` and
+`BOT_ABOUT` alone would delete every field those two do not name — the avatar
+first and most visibly. This reads the profile the relay already holds, lays
+the configured fields over it, and writes the whole object back. An unset
+`BOT_ABOUT` leaves an existing about line alone rather than clearing it.
+
+It refuses rather than guesses. If the relay does not send end-of-stored-events
+inside fifteen seconds, or holds a profile whose content will not parse as a
+JSON object, it exits non-zero having published nothing.
+
+The name is written to both `name` and `display_name` from the one variable,
+because clients disagree about which they index for a mention picker and the
+two drifting apart is the failure `BOT_DISPLAY_NAME` exists to prevent.
+
+Renaming is home-side only by default. Nothing on the far side routes on the
+name — the inbound gate matches on pubkey and thread id — so `--far` is a
+choice about how the bridge reads to the person on the other end.
+
+This is the supported way to set the profile. `PUBLISH_PROFILE=1` is the older
+startup path, it does not merge, and it should stay unset on any deployment
+whose profile has an avatar.
+
+**After a rename, change `BOT_DISPLAY_NAME` to match and restart.** Between the
+two the picker inserts a name the bridge no longer strips, and your mention
+would ride along with your words.
+
 ## Licence
 
 MIT.

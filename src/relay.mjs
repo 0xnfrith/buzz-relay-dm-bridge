@@ -25,14 +25,18 @@ export class RelayConnection {
    *        the `since` cursor is recomputed rather than frozen at boot
    * @param {(event: object) => void} opts.onEvent
    * @param {() => void} [opts.onReady]  fired after each successful auth
+   * @param {() => void} [opts.onEose]   fired when the relay says it has sent
+   *        everything it holds for the subscription. The bridge ignores it;
+   *        a one-shot read needs it to tell "nothing stored" from "not yet".
    */
-  constructor({ name, url, secretKey, filter, onEvent, onReady }) {
+  constructor({ name, url, secretKey, filter, onEvent, onReady, onEose }) {
     this.name = name;
     this.url = url;
     this.secretKey = secretKey;
     this.filter = filter;
     this.onEvent = onEvent;
     this.onReady = onReady;
+    this.onEose = onEose;
     this.subId = `${name}-sub`;
     this.ws = null;
     this.authed = false;
@@ -155,6 +159,15 @@ export class RelayConnection {
       if (waiter) {
         this.pending.delete(id);
         waiter.resolve({ ok: accepted === true, message: message ?? "" });
+      }
+      return;
+    }
+
+    if (msg[0] === "EOSE" && msg[1] === this.subId) {
+      try {
+        this.onEose?.();
+      } catch (err) {
+        log.error("relay.eose_handler_failed", { relay: this.name, error: err.message });
       }
       return;
     }
