@@ -39,7 +39,16 @@ ProtectKernelTunables=yes
 ProtectControlGroups=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 LockPersonality=yes
-MemoryDenyWriteExecute=yes
+
+# MemoryDenyWriteExecute is deliberately absent. V8 compiles to native code at
+# runtime and needs pages that are written and then executed, so the directive
+# kills node during startup, inside the baseline compiler:
+#
+#   Fatal process OOM in AllocateUninitializedInstructionStream
+#
+# Paired with Restart=always and StartLimitIntervalSec=0 above, adding it back
+# does not fail loudly — it produces an unbounded five-second crash loop that
+# looks exactly like a bad key. Verified on Ubuntu 24.04 with node v22.
 
 StandardOutput=journal
 StandardError=journal
