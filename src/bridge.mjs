@@ -15,6 +15,25 @@ const RESUBSCRIBE_MS = 60000;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms).unref?.());
 
+/**
+ * Run tasks strictly one after another.
+ *
+ * Handling events concurrently would let two messages sent seconds apart
+ * overtake each other on the way out — the retry backoff on the first is long
+ * enough for the second to pass it. Order is the whole point of a chat
+ * window, so each direction forwards serially.
+ */
+export function serializer(onError = () => {}) {
+  let tail = Promise.resolve();
+  return (task) => {
+    // A failed task must not stall the queue behind it, and the queue's own
+    // promise must never reject: nothing awaits it, so a rejection here would
+    // surface only as an unhandled rejection.
+    tail = tail.then(task, task).catch(onError);
+    return tail;
+  };
+}
+
 export class Bridge {
   constructor(config, state) {
     this.config = config;
@@ -22,13 +41,15 @@ export class Bridge {
     this.dmChannelId = state.cursor.dm_channel_id ?? null;
     this.lastUntaggedNoticeAt = 0;
     this.stopped = false;
+    this.outbound = serializer((err) => log.error("outbound.failed", { error: String(err?.message ?? err) }));
+    this.inbound = serializer((err) => log.error("inbound.failed", { error: String(err?.message ?? err) }));
 
     this.home = new RelayConnection({
       name: "home",
       url: config.homeRelayUrl,
       secretKey: config.secretKey,
       filter: () => ({ kinds: [KIND_MESSAGE], "#h": [config.homeChannelId], since: state.since("home") }),
-      onEvent: (event) => this.#onHomeEvent(event),
+      onEvent: (event) => this.outbound(() => this.#onHomeEvent(event)),
     });
 
     this.far = new RelayConnection({
@@ -40,7 +61,7 @@ export class Bridge {
       filter: () => (this.dmChannelId
         ? { kinds: [KIND_MESSAGE], "#h": [this.dmChannelId], since: state.since("far") }
         : null),
-      onEvent: (event) => this.#onFarEvent(event),
+      onEvent: (event) => this.inbound(() => this.#onFarEvent(event)),
       onReady: () => { this.#bootstrapFar().catch((e) => log.error("far.bootstrap_failed", { error: e.message })); },
     });
   }
