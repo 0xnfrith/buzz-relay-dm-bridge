@@ -89,13 +89,21 @@ export function classifyHomeEvent(event, config) {
   if (!allowed) return { action: "drop", reason: "author-not-allowed" };
 
   const { text } = stripMention(event.content ?? "", config.displayName);
-  if (text.trim() === "") return { action: "notice-empty", reason: "empty-after-strip" };
+  const attachment = hasAttachment(event);
+  if (text.trim() === "") {
+    // A bare mention with a file attached is not an empty message — it is the
+    // one case the bridge cannot carry. Telling the operator to "put the
+    // message after the mention" would be answering a question they did not
+    // ask and hiding what actually happened to their file.
+    if (attachment) return { action: "notice-attachment-only", reason: "attachment-with-no-text" };
+    return { action: "notice-empty", reason: "empty-after-strip" };
+  }
 
   if (Buffer.byteLength(text, "utf8") > config.maxContentBytes) {
     return { action: "notice-too-long", reason: "over-frame-limit", bytes: Buffer.byteLength(text, "utf8") };
   }
 
-  return { action: "forward", text, attachment: hasAttachment(event) };
+  return { action: "forward", text, attachment };
 }
 
 /** Far relay (peer side) → what should happen. */

@@ -1,4 +1,4 @@
-# relay-dm-bridge
+# buzz-relay-dm-bridge
 
 Bridge one channel on one relay to one direct-message thread on another relay,
 using a single identity that is a member of both.
@@ -10,6 +10,11 @@ channel and tagged so it notifies you. Nothing else on either relay is touched.
 
 It is a chat window onto one person, built out of two relay memberships and
 about five hundred lines of Node.
+
+It targets relays that speak the Buzz extensions to nostr: channels addressed
+by an `h` tag, direct-message threads opened with a kind-41010 command whose
+acknowledgement carries the thread id, and plaintext kind-9 messages inside
+them. It is not a general NIP-04 or NIP-17 client.
 
 ## How it decides what to move
 
@@ -53,7 +58,7 @@ useful for proving the routing without touching either relay.
 non-zero if the heartbeat is stale. There is no HTTP port; nothing listens.
 
 See [`.env.example`](.env.example) for the full configuration surface and
-[`systemd/relay-dm-bridge.service`](systemd/relay-dm-bridge.service) for a
+[`systemd/buzz-relay-dm-bridge.service`](systemd/buzz-relay-dm-bridge.service) for a
 hardened unit file.
 
 ## Restarts, replays and duplicates

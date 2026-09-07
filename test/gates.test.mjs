@@ -127,3 +127,8 @@ test("a system event in the peer thread is not forwarded", () => {
   const event = { kind: 44100, id: "f".repeat(64), pubkey: PEER, created_at: 1, content: "{}", tags: [["h", DM]] };
   assert.deepEqual(classifyFarEvent(event, config, DM), { action: "drop", reason: "not-a-message" });
 });
+
+test("a bare mention with a file attached is told what really happened", () => {
+  const v = classifyHomeEvent(message({ content: "@the-bridge ", tags: [["h", HOME], ["p", BOT], ["imeta", "url https://example/x.png"]] }), config);
+  assert.deepEqual(v, { action: "notice-attachment-only", reason: "attachment-with-no-text" });
+});

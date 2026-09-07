@@ -1,0 +1,48 @@
+[Unit]
+Description=buzz-relay-dm-bridge
+After=network-online.target
+Wants=network-online.target
+
+# A relay outage must never permanently stop the bridge, so restarts are not
+# rate limited. This belongs in [Unit], not [Service] — put it in [Service]
+# and systemd ignores it, leaving the default five-starts-in-ten-seconds cap
+# that would stop the unit for good during exactly the outage it is meant to
+# survive.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=buzz-relay-dm-bridge
+Group=buzz-relay-dm-bridge
+WorkingDirectory=/opt/buzz-relay-dm-bridge
+ExecStart=/usr/bin/node /opt/buzz-relay-dm-bridge/src/index.mjs
+
+# The key lives here and nowhere else. Mode 0600, owned by the service user.
+EnvironmentFile=/etc/buzz-relay-dm-bridge/env
+
+# StateDirectory creates and chowns /var/lib/buzz-relay-dm-bridge on start.
+StateDirectory=buzz-relay-dm-bridge
+StateDirectoryMode=0700
+Environment=STATE_DIR=/var/lib/buzz-relay-dm-bridge
+
+# The outer net for a crash, not the reconnect mechanism: the process already
+# survives either relay being down on its own.
+Restart=always
+RestartSec=5
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

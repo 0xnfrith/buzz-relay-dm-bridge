@@ -188,11 +188,14 @@ export class Bridge {
     }
 
     if (verdict.action === "notice-untagged") {
+      // Suppressed before the cooldown check, not after: an event the cooldown
+      // swallows must still be recorded, or the in-memory cooldown resetting
+      // on restart would let the replay window re-nag about it.
+      this.state.suppress(event.id);
       const now = Date.now();
       if (now - this.lastUntaggedNoticeAt < this.config.untaggedNoticeCooldownMs) return;
       this.lastUntaggedNoticeAt = now;
       log.info("home.untagged_notice", { id: event.id });
-      this.state.suppress(event.id);
       await this.#notifyHome(
         "That did not tag me, so nothing was sent. Pick me from the mention list and I will forward it.",
       );
@@ -202,6 +205,15 @@ export class Bridge {
     if (verdict.action === "notice-empty") {
       this.state.suppress(event.id);
       await this.#notifyHome("Nothing to send — put the message after the mention.");
+      return;
+    }
+
+    if (verdict.action === "notice-attachment-only") {
+      this.state.suppress(event.id);
+      await this.#notifyHome(
+        "That was a file with no text, and files cannot cross — they live on the relay they were uploaded to. " +
+        "Nothing was sent. Describe it in words and that will go.",
+      );
       return;
     }
 

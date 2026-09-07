@@ -1,10 +1,10 @@
 {
-  "name": "relay-dm-bridge",
+  "name": "buzz-relay-dm-bridge",
   "version": "0.1.0",
   "description": "Bridge one relay channel to one direct-message thread on a second relay, using a single identity on both.",
   "license": "MIT",
   "type": "module",
-  "bin": { "relay-dm-bridge": "src/index.mjs" },
+  "bin": { "buzz-relay-dm-bridge": "src/index.mjs" },
   "main": "src/index.mjs",
   "engines": { "node": ">=20" },
   "scripts": {
