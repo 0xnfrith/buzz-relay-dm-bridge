@@ -13,8 +13,44 @@ export function tagValues(event, name) {
     .filter((v) => typeof v === "string");
 }
 
-export function hasAttachment(event) {
-  return (event?.tags ?? []).some((t) => Array.isArray(t) && t[0] === "imeta");
+/**
+ * Pull the attachments out of an event's `imeta` tags.
+ *
+ * Each tag is `["imeta", "url …", "m image/png", "x <sha256>", …]` — one
+ * space-separated key/value pair per element, per NIP-92. Values may contain
+ * spaces, so only the first space separates.
+ *
+ * A tag without a `url` describes nothing that can be carried and is dropped.
+ */
+export function parseImeta(event) {
+  const out = [];
+  for (const tag of event?.tags ?? []) {
+    if (!Array.isArray(tag) || tag[0] !== "imeta") continue;
+    const fields = {};
+    for (const entry of tag.slice(1)) {
+      if (typeof entry !== "string") continue;
+      const gap = entry.indexOf(" ");
+      if (gap === -1) continue;
+      const key = entry.slice(0, gap);
+      if (!(key in fields)) fields[key] = entry.slice(gap + 1);
+    }
+    if (!fields.url) continue;
+    out.push({
+      url: fields.url,
+      mime: fields.m ?? "",
+      sha: (fields.x ?? shaFromUrl(fields.url) ?? "").toLowerCase(),
+      size: Number(fields.size) || 0,
+      filename: fields.filename ?? "",
+      thumb: fields.thumb ?? "",
+    });
+  }
+  return out;
+}
+
+/** The content-addressed hash in a `/media/<sha256>.<ext>` path, if there is one. */
+export function shaFromUrl(url) {
+  const match = /\/([0-9a-f]{64})(?:\.[a-z0-9.]+)?$/i.exec(String(url ?? ""));
+  return match ? match[1].toLowerCase() : null;
 }
 
 /**
@@ -102,21 +138,21 @@ export function classifyHomeEvent(event, config) {
   if (!allowed) return { action: "drop", reason: "author-not-allowed" };
 
   const { text } = stripMention(event.content ?? "", config.displayName);
-  const attachment = hasAttachment(event);
+  const attachments = parseImeta(event);
   if (text.trim() === "") {
-    // A bare mention with a file attached is not an empty message — it is the
-    // one case the bridge cannot carry. Telling the operator to "put the
-    // message after the mention" would be answering a question they did not
-    // ask and hiding what actually happened to their file.
-    if (attachment) return { action: "notice-attachment-only", reason: "attachment-with-no-text" };
-    return { action: "notice-empty", reason: "empty-after-strip" };
+    // A bare mention with a file attached is not an empty message. When the
+    // bridge can carry the file, the file *is* the message. When carriage is
+    // off, "put the message after the mention" would be answering a question
+    // the operator did not ask and hiding what happened to their file.
+    if (attachments.length === 0) return { action: "notice-empty", reason: "empty-after-strip" };
+    if (!config.carryAttachments) return { action: "notice-attachment-only", reason: "attachment-with-no-text" };
   }
 
   if (Buffer.byteLength(text, "utf8") > config.maxContentBytes) {
     return { action: "notice-too-long", reason: "over-frame-limit", bytes: Buffer.byteLength(text, "utf8") };
   }
 
-  return { action: "forward", text, attachment };
+  return { action: "forward", text, attachments };
 }
 
 /** Far relay (peer side) → what should happen. */
@@ -132,7 +168,8 @@ export function classifyFarEvent(event, config, dmChannelId) {
   if (event.pubkey !== config.farPeerPubkey) return { action: "drop", reason: "not-the-peer" };
 
   const text = event.content ?? "";
-  if (text.trim() === "" && !hasAttachment(event)) return { action: "drop", reason: "empty" };
+  const attachments = parseImeta(event);
+  if (text.trim() === "" && attachments.length === 0) return { action: "drop", reason: "empty" };
 
-  return { action: "forward", text, attachment: hasAttachment(event) };
+  return { action: "forward", text, attachments };
 }

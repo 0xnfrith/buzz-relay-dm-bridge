@@ -32,16 +32,49 @@ is dropped silently.
 
 ## What it does not do
 
-- **Attachments do not cross.** Media is scoped to the relay it was uploaded
-  to, so a forwarded link would be dead on arrival. The text goes; the file
-  does not; the bridge says so in the channel in both directions. Set
-  `DROP_ATTACHMENTS=false` only if you have added a re-upload path.
+- **A file's link does not cross; the file does.** See below — nothing that
+  arrives is ever a URL onto the other relay, because such a URL is unopenable
+  by definition.
 - **No threading.** A direct message carries no reference to which of your
   messages it answers, so any threading would be a guess. Replies land flat.
 - **No splitting.** A message over the relay's frame limit is refused with its
   size, rather than chunked. A silently split message is not your exact words.
 - **It never speaks to the far peer on its own.** Errors surface in your
   channel only.
+
+## How a file crosses
+
+A relay's blobs are auth-gated to that relay's members, so forwarding a URL
+forwards a link the recipient cannot open. The bridge therefore carries the
+bytes: it downloads the blob from the source relay with its own key, uploads
+it to the destination relay with the same key, and rewrites the message to
+point at the copy. Both legs are Blossom, authorized by a kind-24242 event —
+the same membership the websocket already proves, with no second credential.
+
+Four things that fall out of doing it this way, all of them deliberate:
+
+- **A copy is permanent.** After a file crosses, it exists on both relays,
+  content-addressed, readable by any member of either who has the URL. That is
+  what "the recipient can open it" means, and it cannot be walked back.
+- **The body is rewritten, not just the tag.** Clients render an image from
+  the URL in the message body and read the `imeta` tag only as metadata for a
+  URL already written there, so rewriting the tag alone would ship a message
+  that still points at the unreachable original. A file the sender's client
+  put only in the tags is appended to the body rather than carried invisibly.
+- **The words always travel.** Every refusal — too large, a hash that does not
+  match, a relay that will not hand the blob over — leaves the text on its way
+  and reports what happened to the file. Only a message that was *nothing but*
+  a file that failed is withheld, because there would be nothing left to send.
+- **Size is capped well below what the relays accept, per message.** Carriage
+  happens inside the queue that keeps messages in order, so a large file
+  delays the messages behind it — and ten files just under a per-file limit
+  would delay it just as long. `MAX_ATTACHMENT_BYTES` defaults to 25 MB and
+  bounds the whole message: whatever fits crosses, and the text goes either
+  way with a line saying what did not.
+
+`DROP_ATTACHMENTS=true` turns all of this off and puts the bridge back to
+text-only, saying so in the channel in both directions rather than dropping a
+file in silence.
 
 ## Running it
 

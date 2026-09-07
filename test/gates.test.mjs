@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classifyFarEvent, classifyHomeEvent, hasAttachment, stripMention } from "../src/gates.mjs";
+import { classifyFarEvent, classifyHomeEvent, parseImeta, shaFromUrl, stripMention } from "../src/gates.mjs";
 
 const BOT = "a".repeat(64);
 const OPERATOR = "b".repeat(64);
@@ -16,6 +16,7 @@ const config = {
   allowedAuthors: new Set([OPERATOR]),
   displayName: "the-bridge",
   maxContentBytes: 100,
+  carryAttachments: true,
 };
 
 const message = (over = {}) => ({
@@ -102,11 +103,11 @@ test("an over-long message is refused rather than split", () => {
   assert.equal(v.bytes, 200);
 });
 
-test("an attachment is flagged so the drop can be announced", () => {
+test("an attachment rides along with the text it was sent with", () => {
   const v = classifyHomeEvent(message({ tags: [["h", HOME], ["p", BOT], ["imeta", "url https://example/x.png"]] }), config);
   assert.equal(v.action, "forward");
-  assert.equal(v.attachment, true);
-  assert.equal(hasAttachment(message()), false);
+  assert.equal(v.attachments.length, 1);
+  assert.deepEqual(classifyHomeEvent(message(), config).attachments, []);
 });
 
 test("only the peer's messages come back from the far side", () => {
@@ -128,9 +129,19 @@ test("a system event in the peer thread is not forwarded", () => {
   assert.deepEqual(classifyFarEvent(event, config, DM), { action: "drop", reason: "not-a-message" });
 });
 
-test("a bare mention with a file attached is told what really happened", () => {
-  const v = classifyHomeEvent(message({ content: "@the-bridge ", tags: [["h", HOME], ["p", BOT], ["imeta", "url https://example/x.png"]] }), config);
-  assert.deepEqual(v, { action: "notice-attachment-only", reason: "attachment-with-no-text" });
+test("a bare mention with a file attached is the file, when files can cross", () => {
+  const bare = message({ content: "@the-bridge ", tags: [["h", HOME], ["p", BOT], ["imeta", "url https://example/x.png"]] });
+  const v = classifyHomeEvent(bare, config);
+  assert.equal(v.action, "forward");
+  assert.equal(v.attachments.length, 1);
+});
+
+test("with carriage switched off, a bare file is told what really happened", () => {
+  const bare = message({ content: "@the-bridge ", tags: [["h", HOME], ["p", BOT], ["imeta", "url https://example/x.png"]] });
+  assert.deepEqual(
+    classifyHomeEvent(bare, { ...config, carryAttachments: false }),
+    { action: "notice-attachment-only", reason: "attachment-with-no-text" },
+  );
 });
 
 test("the near-miss warning fires on a message that opens with the name, tagged or not", () => {
@@ -169,7 +180,7 @@ test("a multi-segment hyphenated name works in both directions", () => {
 
   assert.deepEqual(
     classifyHomeEvent(event({ content: "@far-side-dm-bot yo" }), named),
-    { action: "forward", text: "yo", attachment: false },
+    { action: "forward", text: "yo", attachments: [] },
   );
   assert.deepEqual(stripMention("@far-side-dm-bot yo", "far-side-dm-bot"), { text: "yo", found: true });
 });
