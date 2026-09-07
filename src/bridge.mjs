@@ -4,6 +4,7 @@
 import { randomUUID } from "node:crypto";
 import { RelayConnection } from "./relay.mjs";
 import { classifyFarEvent, classifyHomeEvent } from "./gates.mjs";
+import { MediaCarrier, describeRefusal, imetaTag, mediaOrigin, rewriteContent } from "./media.mjs";
 import { log } from "./log.mjs";
 
 const KIND_MESSAGE = 9;
@@ -41,6 +42,9 @@ export class Bridge {
     this.dmChannelId = state.cursor.dm_channel_id ?? null;
     this.lastUntaggedNoticeAt = 0;
     this.stopped = false;
+    this.homeOrigin = mediaOrigin(config.homeRelayUrl);
+    this.farOrigin = mediaOrigin(config.farRelayUrl);
+    this.media = new MediaCarrier({ secretKey: config.secretKey, maxBytes: config.maxAttachmentBytes });
     this.outbound = serializer((err) => log.error("outbound.failed", { error: String(err?.message ?? err) }));
     this.inbound = serializer((err) => log.error("inbound.failed", { error: String(err?.message ?? err) }));
 
@@ -232,10 +236,21 @@ export class Bridge {
       return;
     }
 
+    const carriage = await this.#carry(verdict.attachments, verdict.text, this.homeOrigin, this.farOrigin);
+
+    if (carriage.content.trim() === "") {
+      // The whole message was one file, and the file did not cross. There is
+      // nothing left to publish, so say what happened instead of sending an
+      // empty line the peer would have to ask about.
+      this.state.suppress(event.id);
+      await this.#notifyHome(`Nothing was sent — ${carriage.failures[0] ?? "the file did not cross"}.`);
+      return;
+    }
+
     const sent = await this.#forward(this.far, {
       kind: KIND_MESSAGE,
-      tags: [["h", this.dmChannelId], ["p", this.config.farPeerPubkey]],
-      content: verdict.text,
+      tags: [["h", this.dmChannelId], ["p", this.config.farPeerPubkey], ...carriage.tags],
+      content: carriage.content,
     });
 
     if (!sent.ok) {
@@ -250,14 +265,20 @@ export class Bridge {
     }
 
     this.state.commit(event.id, "home", event.created_at);
-    log.info("forward", { direction: "out", src: event.id, dst: sent.id, bytes: Buffer.byteLength(verdict.text, "utf8") });
-    log.debug("forward.body", { direction: "out", content: verdict.text });
+    log.info("forward", {
+      direction: "out",
+      src: event.id,
+      dst: sent.id,
+      bytes: Buffer.byteLength(carriage.content, "utf8"),
+      files: carriage.tags.length,
+    });
+    log.debug("forward.body", { direction: "out", content: carriage.content });
 
-    if (verdict.attachment && this.config.dropAttachments) {
-      await this.#notifyHome(
-        "Your text went through. The attached file did not — files live on the relay they were uploaded to, " +
-        "so a link across would be dead on arrival.",
-      );
+    // Reported after the text is safely away, and only for the files that did
+    // not make it: a message that half arrived is worth knowing about, and
+    // the half that arrived is not worth a notification.
+    for (const failure of carriage.failures) {
+      await this.#notifyHome(`Your words went through. A file did not — ${failure}.`);
     }
   }
 
@@ -272,13 +293,14 @@ export class Bridge {
       return;
     }
 
-    const body = verdict.text.trim() === ""
-      ? "(they sent an attachment I could not carry over — no text with it)"
-      : verdict.text;
+    const carriage = await this.#carry(verdict.attachments, verdict.text, this.farOrigin, this.homeOrigin);
+    const body = carriage.content.trim() === ""
+      ? "(they sent a file that did not cross — no text with it)"
+      : carriage.content;
 
     const sent = await this.#forward(this.home, {
       kind: KIND_MESSAGE,
-      tags: [["h", this.config.homeChannelId], ["p", this.config.notifyPubkey]],
+      tags: [["h", this.config.homeChannelId], ["p", this.config.notifyPubkey], ...carriage.tags],
       content: body,
     });
 
@@ -291,15 +313,69 @@ export class Bridge {
     }
 
     this.state.commit(event.id, "far", event.created_at);
-    log.info("forward", { direction: "in", src: event.id, dst: sent.id, bytes: Buffer.byteLength(body, "utf8") });
+    log.info("forward", {
+      direction: "in",
+      src: event.id,
+      dst: sent.id,
+      bytes: Buffer.byteLength(body, "utf8"),
+      files: carriage.tags.length,
+    });
     log.debug("forward.body", { direction: "in", content: body });
 
-    if (verdict.attachment && verdict.text.trim() !== "" && this.config.dropAttachments) {
-      await this.#notifyHome("They also sent an attachment, which I could not carry over.");
+    for (const failure of carriage.failures) {
+      await this.#notifyHome(`They also sent a file, which did not cross — ${failure}.`);
     }
   }
 
   // --- shared -------------------------------------------------------------
+
+  /**
+   * Re-host every attachment on the destination relay and point the message
+   * body at the copies.
+   *
+   * Files are carried one at a time, inside the direction's serializer, so a
+   * large one delays the messages behind it — which is why the size cap is a
+   * bridge setting well below what either relay would accept. Anything that
+   * refuses is reported and skipped; the words always travel, whatever
+   * happens to the bytes.
+   *
+   * @returns {{content: string, tags: string[][], failures: string[]}}
+   */
+  async #carry(attachments, text, fromOrigin, toOrigin) {
+    const list = attachments ?? [];
+    if (list.length === 0 || !this.config.carryAttachments) {
+      return { content: text, tags: [], failures: [] };
+    }
+
+    // An upload is a real write to a relay, which DRY_RUN's other two gates
+    // do not cover. Without this line a dry run quietly pushes blobs across.
+    if (this.config.dryRun) {
+      for (const item of list) log.info("dry_run.carry", { url: item.url, sha: item.sha, size: item.size, to: toOrigin });
+      return { content: text, tags: [], failures: [] };
+    }
+
+    const carried = [];
+    const tags = [];
+    const failures = [];
+    for (const { attachment, ...result } of await this.media.carryAll(list, fromOrigin, toOrigin)) {
+      if (!result.ok) {
+        log.warn("media.refused", { url: attachment.url, reason: result.reason, detail: result.detail });
+        failures.push(describeRefusal(result.reason, result.detail, this.config.maxAttachmentBytes));
+        continue;
+      }
+      carried.push({
+        from: attachment.url,
+        to: result.descriptor.url,
+        fromThumb: attachment.thumb,
+        toThumb: result.descriptor.thumb ?? "",
+        filename: attachment.filename,
+      });
+      tags.push(imetaTag(result.descriptor, attachment.filename));
+      log.info("media.carried", { from: attachment.url, to: result.descriptor.url, bytes: result.descriptor.size });
+    }
+
+    return { content: rewriteContent(text, carried), tags, failures };
+  }
 
   async #forward(connection, template) {
     let last = { ok: false, message: "not attempted" };

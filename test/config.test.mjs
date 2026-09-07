@@ -22,7 +22,8 @@ test("a complete environment loads", () => {
   assert.equal(c.botPubkey, SELF);
   assert.equal(c.allowedAuthors.has("b".repeat(64)), true);
   assert.equal(c.notifyPubkey, "b".repeat(64), "notify defaults to the first allowed author");
-  assert.equal(c.dropAttachments, true);
+  assert.equal(c.carryAttachments, true, "files are carried unless the kill switch is set");
+  assert.equal(c.maxAttachmentBytes, 25 * 1024 * 1024);
 });
 
 test("every site-specific value is required — nothing has a default", () => {
@@ -69,4 +70,11 @@ test("a command acknowledgement yields the relay's payload", () => {
   assert.equal(parseCommandResponse("duplicate: already processed"), null);
   assert.equal(parseCommandResponse(""), null);
   assert.equal(parseCommandResponse("response:not-json"), null);
+});
+
+test("DROP_ATTACHMENTS is the kill switch, and only the exact word turns it on", () => {
+  assert.equal(loadConfig({ ...base, DROP_ATTACHMENTS: "true" }).carryAttachments, false);
+  assert.equal(loadConfig({ ...base, DROP_ATTACHMENTS: "false" }).carryAttachments, true);
+  assert.equal(loadConfig({ ...base, DROP_ATTACHMENTS: "" }).carryAttachments, true);
+  assert.equal(loadConfig({ ...base, MAX_ATTACHMENT_BYTES: "1024" }).maxAttachmentBytes, 1024);
 });
