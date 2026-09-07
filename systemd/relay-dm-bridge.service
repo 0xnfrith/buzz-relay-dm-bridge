@@ -1,0 +1,44 @@
+[Unit]
+Description=relay-dm-bridge
+Documentation=https://github.com/example/relay-dm-bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=relay-dm-bridge
+Group=relay-dm-bridge
+WorkingDirectory=/opt/relay-dm-bridge
+ExecStart=/usr/bin/node /opt/relay-dm-bridge/src/index.mjs
+
+# The key lives here and nowhere else. Mode 0600, owned by the service user.
+EnvironmentFile=/etc/relay-dm-bridge/env
+
+# StateDirectory creates and chowns /var/lib/relay-dm-bridge on start.
+StateDirectory=relay-dm-bridge
+StateDirectoryMode=0700
+Environment=STATE_DIR=/var/lib/relay-dm-bridge
+
+# A relay outage must never permanently stop the bridge, so restarts are not
+# rate limited. The process already survives either relay being down on its
+# own; this is the outer net for a crash, not the reconnect mechanism.
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=0
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
