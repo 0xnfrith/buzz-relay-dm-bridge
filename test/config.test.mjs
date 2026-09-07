@@ -33,6 +33,16 @@ test("every site-specific value is required — nothing has a default", () => {
   }
 });
 
+test("BOT_PICTURE is optional, and refused unless it is an http(s) URL", () => {
+  assert.equal(loadConfig({ ...base }).displayPicture, "", "unset means leave the avatar alone");
+  assert.equal(
+    loadConfig({ ...base, BOT_PICTURE: "https://example.invalid/avatar.png" }).displayPicture,
+    "https://example.invalid/avatar.png",
+  );
+  assert.throws(() => loadConfig({ ...base, BOT_PICTURE: "example.invalid/avatar.png" }), ConfigError);
+  assert.throws(() => loadConfig({ ...base, BOT_PICTURE: "wss://example.invalid/avatar.png" }), ConfigError);
+});
+
 test("an empty author allowlist is refused, not read as allow-all", () => {
   assert.throws(() => loadConfig({ ...base, ALLOWED_AUTHORS: "" }), ConfigError);
 });

@@ -5,6 +5,8 @@
 //   node src/set-profile.mjs --commit   publish it
 //   node src/set-profile.mjs --far      also target the far relay
 //
+// The fields it writes come from BOT_DISPLAY_NAME, BOT_ABOUT and BOT_PICTURE.
+//
 // Why this exists as a separate entry point rather than a flag on the bridge:
 // kind 0 is replaceable, so publishing a profile assembled only from
 // BOT_DISPLAY_NAME and BOT_ABOUT deletes every other field — the avatar most
@@ -63,9 +65,11 @@ function fetchProfile(conn, pubkey) {
  * two must not be allowed to drift apart.
  *
  * An unset BOT_ABOUT leaves any existing about line alone rather than
- * clearing it — this script only ever adds or replaces named fields.
+ * clearing it — this script only ever adds or replaces named fields. BOT_PICTURE
+ * behaves the same way: unset means "leave the avatar as it is", never "clear
+ * it", so a run that only means to change the name cannot drop the picture.
  */
-export function mergeProfile(existingContent, { displayName, about }) {
+export function mergeProfile(existingContent, { displayName, about, picture }) {
   let base = {};
   if (existingContent != null && existingContent !== "") {
     try {
@@ -82,6 +86,7 @@ export function mergeProfile(existingContent, { displayName, about }) {
     name: displayName,
     display_name: displayName,
     ...(about ? { about } : {}),
+    ...(picture ? { picture } : {}),
   };
 }
 
@@ -103,6 +108,7 @@ async function applyTo({ name, url, config, commit }) {
     const merged = mergeProfile(existing?.content, {
       displayName: config.displayName,
       about: config.displayAbout,
+      picture: config.displayPicture,
     });
     const content = JSON.stringify(merged);
     log.info("profile.merged", { relay: name, content });

@@ -33,6 +33,32 @@ test("mergeProfile replaces the about line only when one is configured", () => {
   assert.equal(mergeProfile(existing, { displayName: "x", about: "a new line" }).about, "a new line");
 });
 
+test("mergeProfile replaces the avatar only when one is configured", () => {
+  const existing = JSON.stringify({ picture: "https://example.invalid/old.png" });
+  assert.equal(
+    mergeProfile(existing, { displayName: "x", about: "", picture: "" }).picture,
+    "https://example.invalid/old.png",
+  );
+  assert.equal(
+    mergeProfile(existing, { displayName: "x", about: "", picture: "https://example.invalid/new.png" }).picture,
+    "https://example.invalid/new.png",
+  );
+});
+
+test("mergeProfile adds an avatar to a profile that has none", () => {
+  const merged = mergeProfile(JSON.stringify({ about: "keep me" }), {
+    displayName: "far-side-dm-bot",
+    about: "",
+    picture: "https://example.invalid/new.png",
+  });
+  assert.deepEqual(merged, {
+    name: "far-side-dm-bot",
+    display_name: "far-side-dm-bot",
+    about: "keep me",
+    picture: "https://example.invalid/new.png",
+  });
+});
+
 test("mergeProfile builds from nothing when the relay holds no profile", () => {
   assert.deepEqual(mergeProfile(undefined, fields), { name: "far-side-dm-bot", display_name: "far-side-dm-bot" });
   assert.deepEqual(mergeProfile("", fields), { name: "far-side-dm-bot", display_name: "far-side-dm-bot" });

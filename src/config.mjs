@@ -38,6 +38,15 @@ function wss(name, value) {
   return value.replace(/\/+$/, "");
 }
 
+// An avatar URL is fetched by every client that renders the bot, none of which
+// share this relay's credentials, so an http(s) URL is the only shape that can
+// work. A typo here is a broken image in front of the person the bridge talks
+// to, which is worth refusing to start over.
+function http(name, value) {
+  if (!/^https?:\/\//.test(value)) throw new ConfigError(`${name} must be an http:// or https:// URL`);
+  return value;
+}
+
 // Accepts either 64-hex or a bech32 nsec. The decoded bytes never leave this
 // function as a string, and the raw input is registered with the redactor.
 export function decodeSecretKey(raw) {
@@ -91,12 +100,25 @@ export function loadConfig(env = process.env) {
     notifyPubkey,
     displayName,
     displayAbout: optional(env, "BOT_ABOUT", ""),
+    // Unset leaves whatever avatar the relay already holds alone; set-profile
+    // only ever writes the fields it was given a value for.
+    displayPicture: (() => {
+      const value = optional(env, "BOT_PICTURE", "");
+      return value === "" ? "" : http("BOT_PICTURE", value);
+    })(),
     // Off by default. Kind 0 is replaceable, so publishing a profile built
     // only from these two variables would silently drop an avatar or any
     // other field an operator set through another client.
     publishProfile: optional(env, "PUBLISH_PROFILE", "") === "1",
     stateDir: optional(env, "STATE_DIR", "./state"),
-    dropAttachments: optional(env, "DROP_ATTACHMENTS", "true") !== "false",
+    // Files are carried by default. `DROP_ATTACHMENTS=true` is the kill
+    // switch: it puts the bridge back to text-only, saying so in the channel
+    // in both directions rather than dropping a file in silence.
+    carryAttachments: optional(env, "DROP_ATTACHMENTS", "false") !== "true",
+    // Well under either relay's own limit, because carriage happens inside
+    // the direction's serializer: a file this size delays every message
+    // behind it, and one that took minutes would look like an outage.
+    maxAttachmentBytes: Number(optional(env, "MAX_ATTACHMENT_BYTES", String(25 * 1024 * 1024))),
     dryRun: optional(env, "DRY_RUN", "") === "1",
     logLevel: optional(env, "LOG_LEVEL", "info"),
     // The relay's default frame limit. Overridable because it is a relay
