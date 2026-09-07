@@ -51,11 +51,24 @@ export function stripMention(content, displayName) {
   return { text, found: true };
 }
 
-/** Does the body name the bridge as plain text, with no tag behind it? */
+/**
+ * Does the body open by addressing the bridge, with no tag behind it?
+ *
+ * Deliberately anchored to the start of the message, with or without the `@`,
+ * because that is the shape of the mistake: you type the name, then what you
+ * wanted to send, and nothing happens. Matching the name anywhere in the body
+ * would turn every passing reference to the bridge into a correction.
+ */
 export function looksLikeUntaggedMention(content, displayName) {
-  return String(content ?? "")
-    .toLowerCase()
-    .includes(`@${displayName.toLowerCase()}`);
+  const body = String(content ?? "").trimStart().toLowerCase();
+  const name = displayName.toLowerCase();
+  const rest = body.startsWith(`@${name}`)
+    ? body.slice(name.length + 1)
+    : body.startsWith(name)
+      ? body.slice(name.length)
+      : null;
+  // A longer name that merely starts with ours is a different identity.
+  return rest !== null && !/^[\w-]/.test(rest);
 }
 
 /**

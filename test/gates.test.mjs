@@ -132,3 +132,16 @@ test("a bare mention with a file attached is told what really happened", () => {
   const v = classifyHomeEvent(message({ content: "@the-bridge ", tags: [["h", HOME], ["p", BOT], ["imeta", "url https://example/x.png"]] }), config);
   assert.deepEqual(v, { action: "notice-attachment-only", reason: "attachment-with-no-text" });
 });
+
+test("the near-miss warning fires on a message that opens with the name, tagged or not", () => {
+  const untagged = (content) => classifyHomeEvent(message({ tags: [["h", HOME]], content }), config);
+  assert.equal(untagged("@the-bridge can you make thursday 2pm").action, "notice-untagged");
+  assert.equal(untagged("the-bridge can you make thursday 2pm").action, "notice-untagged");
+  assert.equal(untagged("  @The-Bridge ok").action, "notice-untagged");
+});
+
+test("the near-miss warning stays quiet on a passing reference", () => {
+  const untagged = (content) => classifyHomeEvent(message({ tags: [["h", HOME]], content }), config);
+  assert.deepEqual(untagged("I'll ask @the-bridge about it later"), { action: "drop", reason: "not-tagged" });
+  assert.deepEqual(untagged("@the-bridge-two is a different thing"), { action: "drop", reason: "not-tagged" });
+});
